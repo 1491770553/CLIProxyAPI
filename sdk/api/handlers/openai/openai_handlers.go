@@ -438,6 +438,16 @@ func (h *OpenAIAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSON []
 		return
 	}
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
+
+	// Rewrite model name in response if it differs from the client's requested model.
+	// This handles cases where the registry stores aliases (e.g., "kimi-k2.6")
+	// but the upstream returns the actual model name (e.g., "MiniMax-M2.7").
+	respModel := gjson.GetBytes(resp, "model").String()
+	if respModel != "" && respModel != modelName {
+		// Rewrite response model back to what the client requested
+		resp, _ = sjson.SetBytes(resp, "model", modelName)
+	}
+
 	_, _ = c.Writer.Write(resp)
 	cliCancel()
 }
@@ -508,11 +518,13 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 			setSSEHeaders()
 			handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 
+			// Rewrite model name in first chunk if it differs from requested model.
+			chunk = rewriteStreamingModelInSSE(chunk, modelName)
 			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(chunk))
 			flusher.Flush()
 
 			// Continue streaming the rest
-			h.handleStreamResult(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
+			h.handleStreamResult(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan, modelName)
 			return
 		}
 	}
@@ -542,6 +554,15 @@ func (h *OpenAIAPIHandler) handleCompletionsNonStreamingResponse(c *gin.Context,
 		return
 	}
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
+
+	// Rewrite model name in response if it differs from the client's requested model.
+	// This handles cases where the registry stores aliases (e.g., "kimi-k2.6")
+	// but the upstream returns the actual model name (e.g., "MiniMax-M2.7").
+	respModel := gjson.GetBytes(resp, "model").String()
+	if respModel != "" && respModel != modelName {
+		resp, _ = sjson.SetBytes(resp, "model", modelName)
+	}
+
 	completionsResp := convertChatCompletionsResponseToCompletions(resp)
 	_, _ = c.Writer.Write(completionsResp)
 	cliCancel()
@@ -652,14 +673,16 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 			h.handleStreamResult(c, flusher, func(err error) {
 				stop()
 				cliCancel(err)
-			}, convertedChan, errChan)
+			}, convertedChan, errChan, modelName)
 			return
 		}
 	}
 }
-func (h *OpenAIAPIHandler) handleStreamResult(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
+func (h *OpenAIAPIHandler) handleStreamResult(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage, modelName string) {
 	h.ForwardStream(c, flusher, cancel, data, errs, handlers.StreamForwardOptions{
 		WriteChunk: func(chunk []byte) {
+			// Rewrite model name in chunk if it differs from requested model.
+			chunk = rewriteStreamingModelInSSE(chunk, modelName)
 			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(chunk))
 		},
 		WriteTerminalError: func(errMsg *interfaces.ErrorMessage) {
@@ -681,4 +704,16 @@ func (h *OpenAIAPIHandler) handleStreamResult(c *gin.Context, flusher http.Flush
 			_, _ = fmt.Fprint(c.Writer, "data: [DONE]\n\n")
 		},
 	})
+}
+
+// rewriteStreamingModelInSSE rewrites the model name in a Server-Sent Events (SSE) data chunk.
+// It looks for "model" field at the root level of the JSON and replaces it with the requested model name.
+// This handles cases where the upstream returns a different model name than what the client requested.
+func rewriteStreamingModelInSSE(chunk []byte, requestedModel string) []byte {
+	// Check if chunk contains "model" at root level
+	respModel := gjson.GetBytes(chunk, "model").String()
+	if respModel != "" && respModel != requestedModel {
+		chunk, _ = sjson.SetBytes(chunk, "model", requestedModel)
+	}
+	return chunk
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // ClaudeCodeAPIHandler contains the handlers for Claude API endpoints.
@@ -196,6 +197,15 @@ func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSO
 	}
 
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
+
+	// Rewrite model name in response if it differs from the client's requested model.
+	// This handles cases where the registry stores aliases (e.g., "kimi-k2.6")
+	// but the upstream returns the actual model name (e.g., "MiniMax-M2.7").
+	respModel := gjson.GetBytes(resp, "model").String()
+	if respModel != "" && respModel != modelName {
+		resp, _ = sjson.SetBytes(resp, "model", modelName)
+	}
+
 	_, _ = c.Writer.Write(resp)
 	cliCancel()
 }
@@ -269,25 +279,27 @@ func (h *ClaudeCodeAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON [
 			setSSEHeaders()
 			handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 
-			// Write the first chunk
+			// Write the first chunk, rewriting model name if needed
 			if len(chunk) > 0 {
+				chunk = rewriteClaudeStreamModel(chunk, modelName)
 				_, _ = c.Writer.Write(chunk)
 				flusher.Flush()
 			}
 
 			// Continue streaming the rest
-			h.forwardClaudeStream(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
+			h.forwardClaudeStream(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan, modelName)
 			return
 		}
 	}
 }
 
-func (h *ClaudeCodeAPIHandler) forwardClaudeStream(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
+func (h *ClaudeCodeAPIHandler) forwardClaudeStream(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage, modelName string) {
 	h.ForwardStream(c, flusher, cancel, data, errs, handlers.StreamForwardOptions{
 		WriteChunk: func(chunk []byte) {
 			if len(chunk) == 0 {
 				return
 			}
+			chunk = rewriteClaudeStreamModel(chunk, modelName)
 			_, _ = c.Writer.Write(chunk)
 		},
 		WriteTerminalError: func(errMsg *interfaces.ErrorMessage) {
@@ -324,4 +336,21 @@ func (h *ClaudeCodeAPIHandler) toClaudeError(msg *interfaces.ErrorMessage) claud
 			Message: msg.Error.Error(),
 		},
 	}
+}
+
+// rewriteClaudeStreamModel rewrites the model name in a Claude SSE stream chunk.
+// It looks for "model" field at the root level or nested in "message" object and replaces it.
+// This handles cases where the upstream returns a different model name than what the client requested.
+func rewriteClaudeStreamModel(chunk []byte, requestedModel string) []byte {
+	// Check root level "model" field
+	respModel := gjson.GetBytes(chunk, "model").String()
+	if respModel != "" && respModel != requestedModel {
+		chunk, _ = sjson.SetBytes(chunk, "model", requestedModel)
+	}
+	// Check nested "message.model" field (Claude SSE format)
+	respModelNested := gjson.GetBytes(chunk, "message.model").String()
+	if respModelNested != "" && respModelNested != requestedModel {
+		chunk, _ = sjson.SetBytes(chunk, "message.model", requestedModel)
+	}
+	return chunk
 }

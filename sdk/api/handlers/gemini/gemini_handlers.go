@@ -17,6 +17,8 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/api/handlers"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // GeminiAPIHandler contains the handlers for Gemini API endpoints.
@@ -235,7 +237,8 @@ func (h *GeminiAPIHandler) handleStreamGenerateContent(c *gin.Context, modelName
 			}
 			handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 
-			// Write first chunk
+			// Write first chunk, rewriting model name if needed
+			chunk = rewriteGeminiStreamModel(chunk, modelName)
 			if alt == "" {
 				_, _ = c.Writer.Write([]byte("data: "))
 				_, _ = c.Writer.Write(chunk)
@@ -246,7 +249,7 @@ func (h *GeminiAPIHandler) handleStreamGenerateContent(c *gin.Context, modelName
 			flusher.Flush()
 
 			// Continue
-			h.forwardGeminiStream(c, flusher, alt, func(err error) { cliCancel(err) }, dataChan, errChan)
+			h.forwardGeminiStream(c, flusher, alt, func(err error) { cliCancel(err) }, dataChan, errChan, modelName)
 			return
 		}
 	}
@@ -297,11 +300,20 @@ func (h *GeminiAPIHandler) handleGenerateContent(c *gin.Context, modelName strin
 		return
 	}
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
+
+	// Rewrite modelVersion in response if it differs from the client's requested model.
+	// This handles cases where the registry stores aliases (e.g., "kimi-k2.6")
+	// but the upstream returns the actual model name (e.g., "MiniMax-M2.7").
+	respModelVersion := gjson.GetBytes(resp, "modelVersion").String()
+	if respModelVersion != "" && respModelVersion != modelName {
+		resp, _ = sjson.SetBytes(resp, "modelVersion", modelName)
+	}
+
 	_, _ = c.Writer.Write(resp)
 	cliCancel()
 }
 
-func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flusher, alt string, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
+func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flusher, alt string, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage, modelName string) {
 	var keepAliveInterval *time.Duration
 	if alt != "" {
 		keepAliveInterval = new(time.Duration(0))
@@ -310,6 +322,7 @@ func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flus
 	h.ForwardStream(c, flusher, cancel, data, errs, handlers.StreamForwardOptions{
 		KeepAliveInterval: keepAliveInterval,
 		WriteChunk: func(chunk []byte) {
+			chunk = rewriteGeminiStreamModel(chunk, modelName)
 			if alt == "" {
 				_, _ = c.Writer.Write([]byte("data: "))
 				_, _ = c.Writer.Write(chunk)
@@ -338,4 +351,15 @@ func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flus
 			}
 		},
 	})
+}
+
+// rewriteGeminiStreamModel rewrites the modelVersion in a Gemini SSE stream chunk.
+// This handles cases where the upstream returns a different model name than what the client requested.
+func rewriteGeminiStreamModel(chunk []byte, requestedModel string) []byte {
+	// Check root level "modelVersion" field
+	respModelVersion := gjson.GetBytes(chunk, "modelVersion").String()
+	if respModelVersion != "" && respModelVersion != requestedModel {
+		chunk, _ = sjson.SetBytes(chunk, "modelVersion", requestedModel)
+	}
+	return chunk
 }
