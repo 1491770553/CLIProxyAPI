@@ -375,6 +375,10 @@ type ClaudeModel struct {
 
 	// Alias is the client-facing model name that maps to Name.
 	Alias string `yaml:"alias" json:"alias"`
+
+	// VisionModel is the model to use when the request contains vision (image) content.
+	// If empty, the same model (Name) is used for vision requests.
+	VisionModel string `yaml:"vision-model,omitempty" json:"vision-model,omitempty"`
 }
 
 func (m ClaudeModel) GetName() string  { return m.Name }
@@ -423,6 +427,10 @@ type CodexModel struct {
 
 	// Alias is the client-facing model name that maps to Name.
 	Alias string `yaml:"alias" json:"alias"`
+
+	// VisionModel is the model to use when the request contains vision (image) content.
+	// If empty, the same model (Name) is used for vision requests.
+	VisionModel string `yaml:"vision-model,omitempty" json:"vision-model,omitempty"`
 }
 
 func (m CodexModel) GetName() string  { return m.Name }
@@ -467,6 +475,10 @@ type GeminiModel struct {
 
 	// Alias is the client-facing model name that maps to Name.
 	Alias string `yaml:"alias" json:"alias"`
+
+	// VisionModel is the model to use when the request contains vision (image) content.
+	// If empty, the same model (Name) is used for vision requests.
+	VisionModel string `yaml:"vision-model,omitempty" json:"vision-model,omitempty"`
 }
 
 func (m GeminiModel) GetName() string  { return m.Name }
@@ -519,6 +531,10 @@ type OpenAICompatibilityModel struct {
 	// Thinking configures the thinking/reasoning capability for this model.
 	// If nil, the model defaults to level-based reasoning with levels ["low", "medium", "high"].
 	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+
+	// VisionModel is the model to use when the request contains vision (image) content.
+	// If empty, the same model (Name) is used for vision requests.
+	VisionModel string `yaml:"vision-model,omitempty" json:"vision-model,omitempty"`
 }
 
 func (m OpenAICompatibilityModel) GetName() string  { return m.Name }
