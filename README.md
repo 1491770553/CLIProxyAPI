@@ -56,6 +56,76 @@ remoteManagement:
 
 完整配置项请参考 [docs](docs/) 目录或内置管理面板。
 
+## 认证与供应商切换
+
+### OAuth 凭证存储
+
+OAuth 凭证存储在 `auth-dir` 目录（默认 `~/.cli-proxy-api/`）下的 JSON 文件中：
+
+```
+~/.cli-proxy-api/
+├── anthropic_xxx.json    # Claude OAuth 凭证
+├── google_xxx.json        # Gemini OAuth 凭证
+├── codex_xxx.json        # Codex OAuth 凭证
+└── ...
+```
+
+### OAuth 登录流程
+
+```bash
+1. 调用管理 API 获取 OAuth URL
+   GET /v0/management/anthropic-auth-url
+
+2. 用户在浏览器中完成授权
+
+3. 回调保存凭证到 auth-dir
+   GET /anthropic/callback?code=xxx&state=xxx
+```
+
+### 切换供应商的方式
+
+**方式一：客户端请求时指定**
+- 客户端请求时在请求体中指定 `model` 名称
+- 系统根据模型名匹配到对应的供应商凭证
+
+**方式二：模型别名路由**
+```yaml
+claude-api-key:
+  - api-key: sk-xxx
+    models:
+      - name: MiniMax-M2.7
+        alias: kimi-k2.6   # 客户端用 kimi-k2.6 实际调用 MiniMax-M2.7
+```
+
+**方式三：前缀路由**
+```yaml
+openai-compatibility:
+  - name: "openrouter"
+    prefix: "test"        # 请求 "test/kimi-k2" 路由到这个 provider
+```
+
+### 多账户轮询
+
+```yaml
+routing:
+  strategy: 'round-robin'  # 轮询 或 'fill-first' # 用完一个再用下一个
+```
+
+```yaml
+quota-exceeded:
+  switch-project: true      # 配额用完自动切换
+  switch-preview-model: true # 切换到预览模型
+```
+
+### 管理 API 管理凭证
+
+| 接口 | 说明 |
+|------|------|
+| `GET /v0/management/auth-files` | 列出所有 OAuth 凭证 |
+| `POST /v0/management/auth-files` | 上传 OAuth 凭证文件 |
+| `DELETE /v0/management/auth-files` | 删除凭证 |
+| `PATCH /v0/management/auth-files/status` | 启用/禁用凭证 |
+
 ## 开发构建
 
 **编译 Windows**
