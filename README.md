@@ -30,6 +30,7 @@ chmod +x cli-proxy-api-linux-amd64
 - **兼容协议** - 提供 OpenAI / Gemini / Claude 兼容 API，适配各类 CLI 工具和 SDK
 - **流式响应** - 完整支持 SSE 流式输出
 - **模型映射** - 支持模型别名和强制前缀
+- **多模态路由** - 检测图片内容时自动切换到视觉模型（需配置 `vision: true`）
 - **管理面板** - 内置 Web UI，支持配置管理、Usage 统计、密钥管理
 - **Amp CLI 集成** - 内置支持 Amp CLI IDE 扩展
 
@@ -116,6 +117,29 @@ quota-exceeded:
   switch-project: true      # 配额用完自动切换
   switch-preview-model: true # 切换到预览模型
 ```
+
+### 多模态（图片理解）
+
+当模型支持视觉识别时，可在配置中声明 `vision: true`，系统将自动完成跨 Provider 路由：
+
+```yaml
+claude-api-key:
+  - api-key: sk-xxx
+    models:
+      - name: MiniMax-M2.7
+        alias: kimi-k2.6
+
+openai-compatibility:
+  - name: "智谱"
+    api-key-entries:
+      - api-key: xxx
+    models:
+      - name: glm-4.6V
+        alias: kimi-k2.6
+        vision: true   # 带图片的 kimi-k2.6 请求自动切换到 glm-4.6V
+```
+
+客户端只需使用标准接口传图片，系统自动检测并路由到视觉模型，无需修改调用方式。
 
 ### 管理 API 管理凭证
 
