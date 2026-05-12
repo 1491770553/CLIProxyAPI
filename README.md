@@ -1,7 +1,5 @@
 # CLI Proxy API
 
-[English](README.md) | 中文 | [日本語](README_JA.md)
-
 为 CLI 提供 OpenAI / Gemini / Claude / Codex 兼容 API 的代理服务器，支持 OAuth 登录多账户轮询。
 
 ## 快速开始
