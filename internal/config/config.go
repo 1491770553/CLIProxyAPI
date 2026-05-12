@@ -379,10 +379,16 @@ type ClaudeModel struct {
 	// VisionModel is the model to use when the request contains vision (image) content.
 	// If empty, the same model (Name) is used for vision requests.
 	VisionModel string `yaml:"vision-model,omitempty" json:"vision-model,omitempty"`
+	// Vision indicates this model supports vision (image) content.
+	// When true and VisionModel is empty, the system will look for a vision-capable
+	// model with the same alias in other providers.
+	Vision bool `yaml:"vision,omitempty" json:"vision,omitempty"`
 }
 
-func (m ClaudeModel) GetName() string  { return m.Name }
-func (m ClaudeModel) GetAlias() string { return m.Alias }
+func (m ClaudeModel) GetName() string         { return m.Name }
+func (m ClaudeModel) GetAlias() string        { return m.Alias }
+func (m ClaudeModel) GetVisionModel() string  { return m.VisionModel }
+func (m ClaudeModel) IsVision() bool          { return m.Vision }
 
 // CodexKey represents the configuration for a Codex API key,
 // including the API key itself and an optional base URL for the API endpoint.
@@ -431,10 +437,14 @@ type CodexModel struct {
 	// VisionModel is the model to use when the request contains vision (image) content.
 	// If empty, the same model (Name) is used for vision requests.
 	VisionModel string `yaml:"vision-model,omitempty" json:"vision-model,omitempty"`
+	// Vision indicates this model supports vision (image) content.
+	Vision bool `yaml:"vision,omitempty" json:"vision,omitempty"`
 }
 
-func (m CodexModel) GetName() string  { return m.Name }
-func (m CodexModel) GetAlias() string { return m.Alias }
+func (m CodexModel) GetName() string         { return m.Name }
+func (m CodexModel) GetAlias() string       { return m.Alias }
+func (m CodexModel) GetVisionModel() string { return m.VisionModel }
+func (m CodexModel) IsVision() bool         { return m.Vision }
 
 // GeminiKey represents the configuration for a Gemini API key,
 // including optional overrides for upstream base URL, proxy routing, and headers.
@@ -479,10 +489,14 @@ type GeminiModel struct {
 	// VisionModel is the model to use when the request contains vision (image) content.
 	// If empty, the same model (Name) is used for vision requests.
 	VisionModel string `yaml:"vision-model,omitempty" json:"vision-model,omitempty"`
+	// Vision indicates this model supports vision (image) content.
+	Vision bool `yaml:"vision,omitempty" json:"vision,omitempty"`
 }
 
-func (m GeminiModel) GetName() string  { return m.Name }
-func (m GeminiModel) GetAlias() string { return m.Alias }
+func (m GeminiModel) GetName() string         { return m.Name }
+func (m GeminiModel) GetAlias() string        { return m.Alias }
+func (m GeminiModel) GetVisionModel() string  { return m.VisionModel }
+func (m GeminiModel) IsVision() bool          { return m.Vision }
 
 // OpenAICompatibility represents the configuration for OpenAI API compatibility
 // with external providers, allowing model aliases to be routed through OpenAI API format.
@@ -535,10 +549,14 @@ type OpenAICompatibilityModel struct {
 	// VisionModel is the model to use when the request contains vision (image) content.
 	// If empty, the same model (Name) is used for vision requests.
 	VisionModel string `yaml:"vision-model,omitempty" json:"vision-model,omitempty"`
+	// Vision indicates this model supports vision (image) content.
+	Vision bool `yaml:"vision,omitempty" json:"vision,omitempty"`
 }
 
-func (m OpenAICompatibilityModel) GetName() string  { return m.Name }
-func (m OpenAICompatibilityModel) GetAlias() string { return m.Alias }
+func (m OpenAICompatibilityModel) GetName() string         { return m.Name }
+func (m OpenAICompatibilityModel) GetAlias() string        { return m.Alias }
+func (m OpenAICompatibilityModel) GetVisionModel() string  { return m.VisionModel }
+func (m OpenAICompatibilityModel) IsVision() bool          { return m.Vision }
 
 // LoadConfig reads a YAML configuration file from the given path,
 // unmarshals it into a Config struct, applies environment variable overrides,

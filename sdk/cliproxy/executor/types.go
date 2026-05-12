@@ -19,6 +19,12 @@ const (
 	SelectedAuthCallbackMetadataKey = "selected_auth_callback"
 	// ExecutionSessionMetadataKey identifies a long-lived downstream execution session.
 	ExecutionSessionMetadataKey = "execution_session_id"
+	// HasVisionMetadataKey indicates whether the request contains vision (image) content.
+	HasVisionMetadataKey = "has_vision"
+	// VisionUpstreamModelKey carries the upstream model name when vision routing switches models.
+	VisionUpstreamModelKey = "vision_upstream_model"
+	// VisionUpstreamProviderKey carries the upstream provider when vision routing switches providers.
+	VisionUpstreamProviderKey = "vision_upstream_provider"
 )
 
 // Request encapsulates the translated payload that will be sent to a provider executor.

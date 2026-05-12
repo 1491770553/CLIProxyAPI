@@ -420,9 +420,17 @@ func preserveRequestedModelSuffix(requestedModel, resolved string) string {
 	return preserveResolvedModelSuffix(resolved, thinking.ParseSuffix(requestedModel))
 }
 
-func (m *Manager) executionModelCandidates(auth *Auth, routeModel string) []string {
+func (m *Manager) executionModelCandidates(auth *Auth, routeModel string, opts cliproxyexecutor.Options) []string {
 	requestedModel := rewriteModelForAuth(routeModel, auth)
 	requestedModel = m.applyOAuthModelAlias(auth, requestedModel)
+
+	// Check if request has vision content and model has VisionModel configured
+	if hasVision := getHasVisionFromMetadata(opts.Metadata); hasVision {
+		if visionModel := m.getVisionModel(auth, requestedModel); visionModel != "" {
+			return []string{visionModel}
+		}
+	}
+
 	if pool := m.resolveOpenAICompatUpstreamModelPool(auth, requestedModel); len(pool) > 0 {
 		if len(pool) == 1 {
 			return pool
@@ -435,6 +443,28 @@ func (m *Manager) executionModelCandidates(auth *Auth, routeModel string) []stri
 		resolved = requestedModel
 	}
 	return []string{resolved}
+}
+
+// resolveVisionProvider determines if a vision model from another provider should be used
+// and injects the provider key into opts.Metadata so pickNextMixed can route to it.
+func (m *Manager) resolveVisionProvider(routeModel string, opts cliproxyexecutor.Options) string {
+	if hasVision := getHasVisionFromMetadata(opts.Metadata); !hasVision {
+		return ""
+	}
+	requestedModel := strings.TrimSpace(routeModel)
+	if requestedModel == "" {
+		return ""
+	}
+	cfg, _ := m.runtimeConfig.Load().(*internalconfig.Config)
+	if cfg == nil {
+		return ""
+	}
+	result := findVisionModelAcrossProvidersWithProvider(cfg, requestedModel)
+	if result.Provider != "" {
+		log.Infof("[VISION] resolveVisionProvider: will route to provider=%s, model=%s", result.Provider, result.Model)
+		return result.Provider
+	}
+	return ""
 }
 
 func executionResultModel(routeModel, upstreamModel string, pooled bool) string {
@@ -466,14 +496,14 @@ func filterExecutionModels(auth *Auth, routeModel string, candidates []string, p
 	return out
 }
 
-func (m *Manager) preparedExecutionModels(auth *Auth, routeModel string) ([]string, bool) {
-	candidates := m.executionModelCandidates(auth, routeModel)
+func (m *Manager) preparedExecutionModels(auth *Auth, routeModel string, opts cliproxyexecutor.Options) ([]string, bool) {
+	candidates := m.executionModelCandidates(auth, routeModel, opts)
 	pooled := len(candidates) > 1
 	return filterExecutionModels(auth, routeModel, candidates, pooled), pooled
 }
 
 func (m *Manager) prepareExecutionModels(auth *Auth, routeModel string) []string {
-	models, _ := m.preparedExecutionModels(auth, routeModel)
+	models, _ := m.preparedExecutionModels(auth, routeModel, cliproxyexecutor.Options{})
 	return models
 }
 
@@ -1081,6 +1111,13 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			}
 			return cliproxyexecutor.Response{}, &Error{Code: "auth_not_found", Message: "no auth available"}
 		}
+		// Determine vision provider before picking auth
+		if visionProvider := m.resolveVisionProvider(routeModel, opts); visionProvider != "" {
+			if opts.Metadata == nil {
+					opts.Metadata = make(map[string]any)
+			}
+			opts.Metadata[cliproxyexecutor.VisionUpstreamProviderKey] = visionProvider
+		}
 		auth, executor, provider, errPick := m.pickNextMixed(ctx, providers, routeModel, opts, tried)
 		if errPick != nil {
 			if lastErr != nil {
@@ -1100,7 +1137,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
 		}
 
-		models, pooled := m.preparedExecutionModels(auth, routeModel)
+		models, pooled := m.preparedExecutionModels(auth, routeModel, opts)
 		if len(models) == 0 {
 			continue
 		}
@@ -1178,7 +1215,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
 		}
 
-		models, pooled := m.preparedExecutionModels(auth, routeModel)
+		models, pooled := m.preparedExecutionModels(auth, routeModel, opts)
 		if len(models) == 0 {
 			continue
 		}
@@ -1241,6 +1278,13 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 			return nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 		}
+		// Determine vision provider before picking auth
+		if visionProvider := m.resolveVisionProvider(routeModel, opts); visionProvider != "" {
+			if opts.Metadata == nil {
+					opts.Metadata = make(map[string]any)
+			}
+			opts.Metadata[cliproxyexecutor.VisionUpstreamProviderKey] = visionProvider
+		}
 		auth, executor, provider, errPick := m.pickNextMixed(ctx, providers, routeModel, opts, tried)
 		if errPick != nil {
 			if lastErr != nil {
@@ -1263,7 +1307,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
 			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
 		}
-		models, pooled := m.preparedExecutionModels(auth, routeModel)
+		models, pooled := m.preparedExecutionModels(auth, routeModel, opts)
 		if len(models) == 0 {
 			continue
 		}
@@ -1369,6 +1413,18 @@ func rewriteModelForAuth(model string, auth *Auth) string {
 	return strings.TrimPrefix(model, needle)
 }
 
+func getHasVisionFromMetadata(meta map[string]any) bool {
+	if meta == nil {
+		return false
+	}
+	if v, ok := meta[cliproxyexecutor.HasVisionMetadataKey]; ok {
+		if b, ok := v.(bool); ok && b {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Manager) applyAPIKeyModelAlias(auth *Auth, requestedModel string) string {
 	if m == nil || auth == nil {
 		return requestedModel
@@ -1416,6 +1472,34 @@ func (m *Manager) applyAPIKeyModelAlias(auth *Auth, requestedModel string) strin
 		return upstreamModel
 	}
 	return requestedModel
+}
+
+// getVisionModel returns the VisionModel configured for the given auth and model.
+func (m *Manager) getVisionModel(auth *Auth, requestedModel string) string {
+	if m == nil || auth == nil {
+		return ""
+	}
+
+	cfg, _ := m.runtimeConfig.Load().(*internalconfig.Config)
+	if cfg == nil {
+		cfg = &internalconfig.Config{}
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+	var visionModel string
+	switch provider {
+	case "gemini":
+		visionModel = resolveVisionModelForGeminiAPIKey(cfg, auth, requestedModel)
+	case "claude":
+		visionModel = resolveVisionModelForClaudeAPIKey(cfg, auth, requestedModel)
+	case "codex":
+		visionModel = resolveVisionModelForCodexAPIKey(cfg, auth, requestedModel)
+	case "vertex":
+		visionModel = resolveVisionModelForVertexAPIKey(cfg, auth, requestedModel)
+	default:
+		visionModel = resolveVisionModelForOpenAICompatAPIKey(cfg, auth, requestedModel)
+	}
+	return visionModel
 }
 
 // APIKeyConfigEntry is a generic interface for API key configurations.
@@ -1538,6 +1622,55 @@ func resolveUpstreamModelForOpenAICompatAPIKey(cfg *internalconfig.Config, auth 
 		return ""
 	}
 	return resolveModelAliasFromConfigModels(requestedModel, asModelAliasEntries(entry.Models))
+}
+
+func resolveVisionModelForClaudeAPIKey(cfg *internalconfig.Config, auth *Auth, requestedModel string) string {
+	entry := resolveClaudeAPIKeyConfig(cfg, auth)
+	if entry == nil {
+		return ""
+	}
+	return resolveVisionModelFromConfigModels(requestedModel, entry.Models)
+}
+
+func resolveVisionModelForCodexAPIKey(cfg *internalconfig.Config, auth *Auth, requestedModel string) string {
+	entry := resolveCodexAPIKeyConfig(cfg, auth)
+	if entry == nil {
+		return ""
+	}
+	return resolveVisionModelFromConfigModels(requestedModel, entry.Models)
+}
+
+func resolveVisionModelForVertexAPIKey(cfg *internalconfig.Config, auth *Auth, requestedModel string) string {
+	entry := resolveVertexAPIKeyConfig(cfg, auth)
+	if entry == nil {
+		return ""
+	}
+	return resolveVisionModelFromConfigModels(requestedModel, entry.Models)
+}
+
+func resolveVisionModelForOpenAICompatAPIKey(cfg *internalconfig.Config, auth *Auth, requestedModel string) string {
+	providerKey := ""
+	compatName := ""
+	if auth != nil && len(auth.Attributes) > 0 {
+		providerKey = strings.TrimSpace(auth.Attributes["provider_key"])
+		compatName = strings.TrimSpace(auth.Attributes["compat_name"])
+	}
+	if compatName == "" && !strings.EqualFold(strings.TrimSpace(auth.Provider), "openai-compatibility") {
+		return ""
+	}
+	entry := resolveOpenAICompatConfig(cfg, providerKey, compatName, auth.Provider)
+	if entry == nil {
+		return ""
+	}
+	return resolveVisionModelFromConfigModels(requestedModel, entry.Models)
+}
+
+func resolveVisionModelForGeminiAPIKey(cfg *internalconfig.Config, auth *Auth, requestedModel string) string {
+	entry := resolveGeminiAPIKeyConfig(cfg, auth)
+	if entry == nil {
+		return ""
+	}
+	return resolveVisionModelFromConfigModels(requestedModel, entry.Models)
 }
 
 type apiKeyModelAliasTable map[string]map[string]string
@@ -2348,6 +2481,17 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		}
 		providerSet[p] = struct{}{}
 	}
+
+	// Check if vision routing set a preferred provider
+	if visionProvider, ok := opts.Metadata[cliproxyexecutor.VisionUpstreamProviderKey].(string); ok && visionProvider != "" {
+		p := strings.TrimSpace(strings.ToLower(visionProvider))
+		if p != "" {
+			// When vision routing is active, ONLY use the vision provider
+			providerSet = map[string]struct{}{p: {}}
+			log.Infof("[VISION] routing to vision provider=%s", visionProvider)
+		}
+	}
+
 	if len(providerSet) == 0 {
 		return nil, nil, "", &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
@@ -2427,19 +2571,33 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 
 	eligibleProviders := make([]string, 0, len(providers))
 	seenProviders := make(map[string]struct{}, len(providers))
-	for _, provider := range providers {
-		providerKey := strings.TrimSpace(strings.ToLower(provider))
-		if providerKey == "" {
-			continue
+
+	// Check if vision routing set a preferred provider
+	if visionProvider, ok := opts.Metadata[cliproxyexecutor.VisionUpstreamProviderKey].(string); ok && visionProvider != "" {
+		providerKey := strings.TrimSpace(strings.ToLower(visionProvider))
+		if _, okExecutor := m.Executor(providerKey); okExecutor {
+			eligibleProviders = append(eligibleProviders, providerKey)
+			seenProviders[providerKey] = struct{}{}
+			log.Infof("[VISION] routing to vision provider=%s", visionProvider)
 		}
-		if _, seen := seenProviders[providerKey]; seen {
-			continue
+	}
+
+	// Add original providers only if no vision provider was set
+	if len(eligibleProviders) == 0 {
+		for _, provider := range providers {
+			providerKey := strings.TrimSpace(strings.ToLower(provider))
+			if providerKey == "" {
+				continue
+			}
+			if _, seen := seenProviders[providerKey]; seen {
+				continue
+			}
+			if _, okExecutor := m.Executor(providerKey); !okExecutor {
+				continue
+			}
+			seenProviders[providerKey] = struct{}{}
+			eligibleProviders = append(eligibleProviders, providerKey)
 		}
-		if _, okExecutor := m.Executor(providerKey); !okExecutor {
-			continue
-		}
-		seenProviders[providerKey] = struct{}{}
-		eligibleProviders = append(eligibleProviders, providerKey)
 	}
 	if len(eligibleProviders) == 0 {
 		return nil, nil, "", &Error{Code: "auth_not_found", Message: "no auth available"}
@@ -2529,7 +2687,7 @@ func (m *Manager) StopAutoRefresh() {
 }
 
 func (m *Manager) checkRefreshes(ctx context.Context) {
-	// log.Debugf("checking refreshes")
+	// log.Infof("checking refreshes")
 	now := time.Now()
 	snapshot := m.snapshotAuths()
 	for _, a := range snapshot {
@@ -2538,7 +2696,7 @@ func (m *Manager) checkRefreshes(ctx context.Context) {
 			if !m.shouldRefresh(a, now) {
 				continue
 			}
-			log.Debugf("checking refresh for %s, %s, %s", a.Provider, a.ID, typ)
+			log.Infof("checking refresh for %s, %s, %s", a.Provider, a.ID, typ)
 
 			if exec := m.executorFor(a.Provider); exec == nil {
 				continue
@@ -2812,10 +2970,10 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
 	cloned := auth.Clone()
 	updated, err := exec.Refresh(ctx, cloned)
 	if err != nil && errors.Is(err, context.Canceled) {
-		log.Debugf("refresh canceled for %s, %s", auth.Provider, auth.ID)
+		log.Infof("refresh canceled for %s, %s", auth.Provider, auth.ID)
 		return
 	}
-	log.Debugf("refreshed %s, %s, %v", auth.Provider, auth.ID, err)
+	log.Infof("refreshed %s, %s, %v", auth.Provider, auth.ID, err)
 	now := time.Now()
 	if err != nil {
 		m.mu.Lock()

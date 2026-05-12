@@ -22,6 +22,8 @@ import (
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	sdkutil "github.com/router-for-me/CLIProxyAPI/v6/sdk/util"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
 
@@ -475,6 +477,11 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 	}
 	reqMeta := requestExecutionMetadata(ctx)
 	reqMeta[coreexecutor.RequestedModelMetadataKey] = normalizedModel
+	// Detect vision content and set has_vision metadata
+	if sdkutil.HasVisionContent(rawJSON) {
+		reqMeta[coreexecutor.HasVisionMetadataKey] = true
+		log.Debugf("[VISION] ExecuteWithAuthManager: detected vision content for model=%s", normalizedModel)
+	}
 	payload := rawJSON
 	if len(payload) == 0 {
 		payload = nil
@@ -521,6 +528,11 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 	}
 	reqMeta := requestExecutionMetadata(ctx)
 	reqMeta[coreexecutor.RequestedModelMetadataKey] = normalizedModel
+	// Detect vision content and set has_vision metadata
+	if sdkutil.HasVisionContent(rawJSON) {
+		reqMeta[coreexecutor.HasVisionMetadataKey] = true
+		log.Debugf("[VISION] ExecuteCountWithAuthManager: detected vision content for model=%s", normalizedModel)
+	}
 	payload := rawJSON
 	if len(payload) == 0 {
 		payload = nil
@@ -571,6 +583,11 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 	}
 	reqMeta := requestExecutionMetadata(ctx)
 	reqMeta[coreexecutor.RequestedModelMetadataKey] = normalizedModel
+	// Detect vision content and set has_vision metadata
+	if sdkutil.HasVisionContent(rawJSON) {
+		reqMeta[coreexecutor.HasVisionMetadataKey] = true
+		log.Infof("[VISION] ExecuteStreamWithAuthManager: detected vision content for model=%s, reqMeta=%v", normalizedModel, reqMeta[coreexecutor.HasVisionMetadataKey])
+	}
 	payload := rawJSON
 	if len(payload) == 0 {
 		payload = nil

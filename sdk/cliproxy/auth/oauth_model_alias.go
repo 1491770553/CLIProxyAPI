@@ -175,6 +175,449 @@ func resolveModelAliasFromConfigModels(requestedModel string, models []modelAlia
 	return ""
 }
 
+// resolveVisionModelFromConfigModels resolves the VisionModel for a given requested model.
+// It checks if any model entry matches the requested model (by alias or name) and returns
+// its VisionModel if configured.
+func resolveVisionModelFromConfigModels(requestedModel string, models interface{}) string {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return ""
+	}
+
+	requestResult, candidates := modelAliasLookupCandidates(requestedModel)
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	// Use reflection to handle different model types
+	return resolveVisionModelGeneric(requestedModel, models, candidates, &requestResult)
+}
+
+func resolveVisionModelGeneric(requestedModel string, models interface{}, candidates []string, requestResult *thinking.SuffixResult) string {
+	// Try to cast to []internalconfig.ClaudeModel
+	if claudeModels, ok := models.([]internalconfig.ClaudeModel); ok {
+		return resolveVisionModelFromClaudeModels(requestedModel, claudeModels, candidates, requestResult)
+	}
+	// Try to cast to []internalconfig.CodexModel
+	if codexModels, ok := models.([]internalconfig.CodexModel); ok {
+		return resolveVisionModelFromCodexModels(requestedModel, codexModels, candidates, requestResult)
+	}
+	// Try to cast to []internalconfig.GeminiModel
+	if geminiModels, ok := models.([]internalconfig.GeminiModel); ok {
+		return resolveVisionModelFromGeminiModels(requestedModel, geminiModels, candidates, requestResult)
+	}
+	// Try to cast to []internalconfig.OpenAICompatibilityModel
+	if openaiModels, ok := models.([]internalconfig.OpenAICompatibilityModel); ok {
+		return resolveVisionModelFromOpenAICompatModels(requestedModel, openaiModels, candidates, requestResult)
+	}
+	return ""
+}
+
+func resolveVisionModelFromClaudeModels(requestedModel string, models []internalconfig.ClaudeModel, candidates []string, requestResult *thinking.SuffixResult) string {
+	for i := range models {
+		alias := strings.TrimSpace(models[i].GetAlias())
+		name := strings.TrimSpace(models[i].GetName())
+		visionModel := strings.TrimSpace(models[i].GetVisionModel())
+
+		// If Vision is true and VisionModel is empty, this model IS the vision model
+		if models[i].IsVision() && visionModel == "" {
+			for _, candidate := range candidates {
+				if candidate == "" {
+					continue
+				}
+				if alias != "" && strings.EqualFold(alias, candidate) {
+					return name
+				}
+				if name != "" && strings.EqualFold(name, candidate) {
+					return name
+				}
+			}
+		}
+
+		if visionModel == "" {
+			continue
+		}
+
+		for _, candidate := range candidates {
+			if candidate == "" {
+				continue
+			}
+			if alias != "" && strings.EqualFold(alias, candidate) {
+				return visionModel
+			}
+			if name != "" && strings.EqualFold(name, candidate) {
+				return visionModel
+			}
+		}
+	}
+
+	// Check base model name (without suffix)
+	baseModel := requestedModel
+	if requestResult != nil {
+		baseModel = requestResult.ModelName
+	}
+
+	for i := range models {
+		alias := strings.TrimSpace(models[i].GetAlias())
+		name := strings.TrimSpace(models[i].GetName())
+		visionModel := strings.TrimSpace(models[i].GetVisionModel())
+
+		// If Vision is true and VisionModel is empty, this model IS the vision model
+		if models[i].IsVision() && visionModel == "" {
+			if alias != "" && strings.EqualFold(alias, baseModel) {
+				return name
+			}
+			if name != "" && strings.EqualFold(name, baseModel) {
+				return name
+			}
+			continue
+		}
+
+		if visionModel == "" {
+			continue
+		}
+
+		if alias != "" && strings.EqualFold(alias, baseModel) {
+			return visionModel
+		}
+		if name != "" && strings.EqualFold(name, baseModel) {
+			return visionModel
+		}
+	}
+	return ""
+}
+
+func resolveVisionModelFromCodexModels(requestedModel string, models []internalconfig.CodexModel, candidates []string, requestResult *thinking.SuffixResult) string {
+	for i := range models {
+		alias := strings.TrimSpace(models[i].GetAlias())
+		name := strings.TrimSpace(models[i].GetName())
+		visionModel := strings.TrimSpace(models[i].GetVisionModel())
+
+		// If Vision is true and VisionModel is empty, this model IS the vision model
+		if models[i].IsVision() && visionModel == "" {
+			for _, candidate := range candidates {
+				if candidate == "" {
+					continue
+				}
+				if alias != "" && strings.EqualFold(alias, candidate) {
+					return name
+				}
+				if name != "" && strings.EqualFold(name, candidate) {
+					return name
+				}
+			}
+		}
+
+		if visionModel == "" {
+			continue
+		}
+
+		for _, candidate := range candidates {
+			if candidate == "" {
+				continue
+			}
+			if alias != "" && strings.EqualFold(alias, candidate) {
+				return visionModel
+			}
+			if name != "" && strings.EqualFold(name, candidate) {
+				return visionModel
+			}
+		}
+	}
+
+	baseModel := requestedModel
+	if requestResult != nil {
+		baseModel = requestResult.ModelName
+	}
+
+	for i := range models {
+		alias := strings.TrimSpace(models[i].GetAlias())
+		name := strings.TrimSpace(models[i].GetName())
+		visionModel := strings.TrimSpace(models[i].GetVisionModel())
+
+		// If Vision is true and VisionModel is empty, this model IS the vision model
+		if models[i].IsVision() && visionModel == "" {
+			if alias != "" && strings.EqualFold(alias, baseModel) {
+				return name
+			}
+			if name != "" && strings.EqualFold(name, baseModel) {
+				return name
+			}
+			continue
+		}
+
+		if visionModel == "" {
+			continue
+		}
+
+		if alias != "" && strings.EqualFold(alias, baseModel) {
+			return visionModel
+		}
+		if name != "" && strings.EqualFold(name, baseModel) {
+			return visionModel
+		}
+	}
+	return ""
+}
+
+func resolveVisionModelFromGeminiModels(requestedModel string, models []internalconfig.GeminiModel, candidates []string, requestResult *thinking.SuffixResult) string {
+	for i := range models {
+		alias := strings.TrimSpace(models[i].GetAlias())
+		name := strings.TrimSpace(models[i].GetName())
+		visionModel := strings.TrimSpace(models[i].GetVisionModel())
+
+		// If Vision is true and VisionModel is empty, this model IS the vision model
+		if models[i].IsVision() && visionModel == "" {
+			for _, candidate := range candidates {
+				if candidate == "" {
+					continue
+				}
+				if alias != "" && strings.EqualFold(alias, candidate) {
+					return name
+				}
+				if name != "" && strings.EqualFold(name, candidate) {
+					return name
+				}
+			}
+		}
+
+		if visionModel == "" {
+			continue
+		}
+
+		for _, candidate := range candidates {
+			if candidate == "" {
+				continue
+			}
+			if alias != "" && strings.EqualFold(alias, candidate) {
+				return visionModel
+			}
+			if name != "" && strings.EqualFold(name, candidate) {
+				return visionModel
+			}
+		}
+	}
+
+	baseModel := requestedModel
+	if requestResult != nil {
+		baseModel = requestResult.ModelName
+	}
+
+	for i := range models {
+		alias := strings.TrimSpace(models[i].GetAlias())
+		name := strings.TrimSpace(models[i].GetName())
+		visionModel := strings.TrimSpace(models[i].GetVisionModel())
+
+		// If Vision is true and VisionModel is empty, this model IS the vision model
+		if models[i].IsVision() && visionModel == "" {
+			if alias != "" && strings.EqualFold(alias, baseModel) {
+				return name
+			}
+			if name != "" && strings.EqualFold(name, baseModel) {
+				return name
+			}
+			continue
+		}
+
+		if visionModel == "" {
+			continue
+		}
+
+		if alias != "" && strings.EqualFold(alias, baseModel) {
+			return visionModel
+		}
+		if name != "" && strings.EqualFold(name, baseModel) {
+			return visionModel
+		}
+	}
+	return ""
+}
+
+func resolveVisionModelFromOpenAICompatModels(requestedModel string, models []internalconfig.OpenAICompatibilityModel, candidates []string, requestResult *thinking.SuffixResult) string {
+	for i := range models {
+		alias := strings.TrimSpace(models[i].GetAlias())
+		name := strings.TrimSpace(models[i].GetName())
+		visionModel := strings.TrimSpace(models[i].GetVisionModel())
+
+		// If Vision is true and VisionModel is empty, this model IS the vision model
+		if models[i].IsVision() && visionModel == "" {
+			for _, candidate := range candidates {
+				if candidate == "" {
+					continue
+				}
+				if alias != "" && strings.EqualFold(alias, candidate) {
+					return name
+				}
+				if name != "" && strings.EqualFold(name, candidate) {
+					return name
+				}
+			}
+		}
+
+		if visionModel == "" {
+			continue
+		}
+
+		for _, candidate := range candidates {
+			if candidate == "" {
+				continue
+			}
+			if alias != "" && strings.EqualFold(alias, candidate) {
+				return visionModel
+			}
+			if name != "" && strings.EqualFold(name, candidate) {
+				return visionModel
+			}
+		}
+	}
+
+	baseModel := requestedModel
+	if requestResult != nil {
+		baseModel = requestResult.ModelName
+	}
+
+	for i := range models {
+		alias := strings.TrimSpace(models[i].GetAlias())
+		name := strings.TrimSpace(models[i].GetName())
+		visionModel := strings.TrimSpace(models[i].GetVisionModel())
+
+		// If Vision is true and VisionModel is empty, this model IS the vision model
+		if models[i].IsVision() && visionModel == "" {
+			if alias != "" && strings.EqualFold(alias, baseModel) {
+				return name
+			}
+			if name != "" && strings.EqualFold(name, baseModel) {
+				return name
+			}
+			continue
+		}
+
+		if visionModel == "" {
+			continue
+		}
+
+		if alias != "" && strings.EqualFold(alias, baseModel) {
+			return visionModel
+		}
+		if name != "" && strings.EqualFold(name, baseModel) {
+			return visionModel
+		}
+	}
+	return ""
+}
+
+// findVisionModelAcrossProviders searches all providers for a model with the given alias
+// that has Vision: true. This enables cross-provider vision model lookup.
+func findVisionModelAcrossProviders(cfg *internalconfig.Config, alias string) string {
+	if cfg == nil || alias == "" {
+		return ""
+	}
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return ""
+	}
+	aliasLower := strings.ToLower(alias)
+
+	// Search claude-api-key models
+	for _, key := range cfg.ClaudeKey {
+		for _, model := range key.Models {
+			if strings.EqualFold(strings.TrimSpace(model.Alias), aliasLower) && model.IsVision() {
+				return strings.TrimSpace(model.Name)
+			}
+		}
+	}
+
+	// Search openai-compatibility models
+	for _, compat := range cfg.OpenAICompatibility {
+		for _, model := range compat.Models {
+			if strings.EqualFold(strings.TrimSpace(model.Alias), aliasLower) && model.IsVision() {
+				return strings.TrimSpace(model.Name)
+			}
+		}
+	}
+
+	// Search gemini-api-key models
+	for _, key := range cfg.GeminiKey {
+		for _, model := range key.Models {
+			if strings.EqualFold(strings.TrimSpace(model.Alias), aliasLower) && model.IsVision() {
+				return strings.TrimSpace(model.Name)
+			}
+		}
+	}
+
+	// Search codex-api-key models
+	for _, key := range cfg.CodexKey {
+		for _, model := range key.Models {
+			if strings.EqualFold(strings.TrimSpace(model.Alias), aliasLower) && model.IsVision() {
+				return strings.TrimSpace(model.Name)
+			}
+		}
+	}
+
+	return ""
+}
+
+// VisionProviderResult holds the result of cross-provider vision model lookup.
+type VisionProviderResult struct {
+	Model    string
+	Provider string
+}
+
+// findVisionModelAcrossProvidersWithProvider searches all providers for a model with the given alias
+// that has Vision: true. Returns the model name and its provider.
+func findVisionModelAcrossProvidersWithProvider(cfg *internalconfig.Config, alias string) VisionProviderResult {
+	if cfg == nil || alias == "" {
+		return VisionProviderResult{}
+	}
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return VisionProviderResult{}
+	}
+	aliasLower := strings.ToLower(alias)
+
+	// Search claude-api-key models
+	for _, key := range cfg.ClaudeKey {
+		for _, model := range key.Models {
+			if strings.EqualFold(strings.TrimSpace(model.Alias), aliasLower) && model.IsVision() {
+				return VisionProviderResult{Model: strings.TrimSpace(model.Name), Provider: "claude"}
+			}
+		}
+	}
+
+	// Search openai-compatibility models
+	for _, compat := range cfg.OpenAICompatibility {
+		for _, model := range compat.Models {
+			if strings.EqualFold(strings.TrimSpace(model.Alias), aliasLower) && model.IsVision() {
+				providerKey := strings.ToLower(strings.TrimSpace(compat.Name))
+				if providerKey == "" {
+					providerKey = "openai-compatibility"
+				}
+				return VisionProviderResult{Model: strings.TrimSpace(model.Name), Provider: providerKey}
+			}
+		}
+	}
+
+	// Search gemini-api-key models
+	for _, key := range cfg.GeminiKey {
+		for _, model := range key.Models {
+			if strings.EqualFold(strings.TrimSpace(model.Alias), aliasLower) && model.IsVision() {
+				return VisionProviderResult{Model: strings.TrimSpace(model.Name), Provider: "gemini"}
+			}
+		}
+	}
+
+	// Search codex-api-key models
+	for _, key := range cfg.CodexKey {
+		for _, model := range key.Models {
+			if strings.EqualFold(strings.TrimSpace(model.Alias), aliasLower) && model.IsVision() {
+				return VisionProviderResult{Model: strings.TrimSpace(model.Name), Provider: "codex"}
+			}
+		}
+	}
+
+	return VisionProviderResult{}
+}
+
 // resolveOAuthUpstreamModel resolves the upstream model name from OAuth model alias.
 // If an alias exists, returns the original (upstream) model name that corresponds
 // to the requested alias.
